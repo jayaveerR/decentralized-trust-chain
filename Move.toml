@@ -1,0 +1,18 @@
+[package]
+name = "Aptos-name"
+version = "1.0.0"
+authors = []
+
+[addresses]
+MyItems = "0xc9d300dfef9ec68f48c519ed3d2e95141f180ec8b2eea83d1ccd4dc98c667284"
+
+[dev-addresses]
+MyItems = "0xc9d300dfef9ec68f48c519ed3d2e95141f180ec8b2eea83d1ccd4dc98c667284"
+
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]
