@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AptosClient } from "aptos";
 import { useWallet, InputTransactionData } from "@aptos-labs/wallet-adapter-react";
@@ -22,8 +22,15 @@ const ItemAdd = () => {
   const [qrCodeVisible, setQrCodeVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [blockchainLoading, setBlockchainLoading] = useState(false);
-  const { signAndSubmitTransaction } = useWallet();
+  const { signAndSubmitTransaction, account, connect } = useWallet();
   const router = useRouter();
+
+  // Auto-populate wallet address when account is available
+  useEffect(() => {
+    if (account?.address) {
+      setFormData(prev => ({ ...prev, walletAddress: account.address.toString() }));
+    }
+  }, [account?.address]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -32,6 +39,13 @@ const ItemAdd = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Check if wallet is connected
+    if (!account?.address) {
+      alert("Please connect your wallet first");
+      return;
+    }
+    
     setSubmitting(true);
     
     // Simulate processing time
@@ -42,6 +56,11 @@ const ItemAdd = () => {
   };
 
   const handleAddToBlockchain = async () => {
+    if (!account?.address) {
+      alert("Please connect your wallet first");
+      return;
+    }
+    
     setBlockchainLoading(true);
     try {
       const addTransaction: InputTransactionData = {
@@ -77,7 +96,7 @@ const ItemAdd = () => {
     }
   };
 
-  const maskWalletAddress = (address: string) => {
+  const maskWalletAddress = (address: string | null | undefined) => {
     if (!address) return "";
     if (address.length <= 10) return address;
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
@@ -123,21 +142,24 @@ const ItemAdd = () => {
             ))}
           </nav>
           
-          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6 text-gray-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-              />
-            </svg>
+          <div className="flex items-center space-x-4">
+            
+            <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-6 w-6 text-gray-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+            </div>
           </div>
         </div>
       </header>
@@ -152,6 +174,18 @@ const ItemAdd = () => {
           <h1 className="text-3xl font-bold mb-2">Add Item to Trust-Chain</h1>
           <p className="text-gray-600">Register your product on the blockchain for authenticity tracking</p>
         </motion.div>
+
+        {!account?.address && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-8 text-center"
+          >
+            <h3 className="text-lg font-medium text-yellow-800 mb-2">Wallet Not Connected</h3>
+            <p className="text-yellow-700 mb-4">Please connect your wallet to add items to the blockchain</p>
+            <WalletSelector />
+          </motion.div>
+        )}
 
         <form
           onSubmit={handleSubmit}
@@ -171,7 +205,8 @@ const ItemAdd = () => {
                   value={formData.itemType}
                   onChange={handleChange}
                   required
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  disabled={!account?.address}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
                 >
                   <option value="">Select item type</option>
                   <option value="shirt">Shirt</option>
@@ -197,7 +232,8 @@ const ItemAdd = () => {
                   onChange={handleChange}
                   placeholder="Formal Shirt, Jeans, etc."
                   required
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  disabled={!account?.address}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
                 />
               </motion.div>
 
@@ -207,15 +243,23 @@ const ItemAdd = () => {
                 transition={{ duration: 0.5, delay: 0.3 }}
               >
                 <label className="block text-sm font-medium mb-2 text-gray-700">Wallet Address *</label>
-                <input
-                  type="text"
-                  name="walletAddress"
-                  value={formData.walletAddress}
-                  onChange={handleChange}
-                  placeholder="0x..."
-                  required
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    name="walletAddress"
+                    value={formData.walletAddress}
+                    onChange={handleChange}
+                    placeholder="0x..."
+                    required
+                    disabled
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  {!account?.address && (
+                    <div className="absolute inset-0 bg-gray-100 bg-opacity-50 flex items-center justify-center rounded-lg">
+                      <span className="text-sm text-gray-500">Connect wallet to auto-fill</span>
+                    </div>
+                  )}
+                </div>
               </motion.div>
             </div>
 
@@ -234,7 +278,8 @@ const ItemAdd = () => {
                   onChange={handleChange}
                   placeholder="Seller name"
                   required
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  disabled={!account?.address}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
                 />
               </motion.div>
 
@@ -251,7 +296,8 @@ const ItemAdd = () => {
                   onChange={handleChange}
                   placeholder="Order identification number"
                   required
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  disabled={!account?.address}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
                 />
               </motion.div>
 
@@ -268,7 +314,8 @@ const ItemAdd = () => {
                     value={formData.pickupDate}
                     onChange={handleChange}
                     required
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    disabled={!account?.address}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
                   />
                 </motion.div>
 
@@ -284,7 +331,8 @@ const ItemAdd = () => {
                     value={formData.pickupTime}
                     onChange={handleChange}
                     required
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    disabled={!account?.address}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
                   />
                 </motion.div>
               </div>
@@ -299,7 +347,7 @@ const ItemAdd = () => {
           >
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !account?.address}
               className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors duration-300 disabled:opacity-70 flex items-center"
             >
               {submitting ? (

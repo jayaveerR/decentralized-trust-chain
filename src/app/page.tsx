@@ -3,16 +3,15 @@
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import Login from "@/components/Login";
 import Image from 'next/image';
+import Link from 'next/link';
 import heroImage from '@/assets/hero-ecommerce.jpg';
 import { WalletSelector } from "@/components/WalletSelector";
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 const HomePage = () => {
   const [activeTab, setActiveTab] = useState("home");
 
-  const handleNavigation = (path: string) => {
-    window.location.href = path;
-  };
+  
 
   return (
     <div className="min-h-screen bg-white text-black">
@@ -46,7 +45,7 @@ const HomePage = () => {
         </div>
 
         <div className="flex space-x-8">
-          {["Home", "Admin", "MyOrders", "Learn"].map((tab) => (
+          {["Home", "Admin", "Learn"].map((tab) => (
             <button
               key={tab}
               className={`relative py-2 ${
@@ -62,10 +61,26 @@ const HomePage = () => {
                     : "scale-x-0 group-hover:scale-x-100"
                 }`}
               ></span>
-
             </button>
-
           ))}
+          <Link href="/myorders">
+            <button
+              key="MyOrders"
+              className={`relative py-2 ${
+                activeTab === "myorders" ? "font-bold" : ""
+              } group`}
+              onClick={() => setActiveTab("myorders")}
+            >
+              MyOrders
+              <span
+                className={`absolute bottom-0 left-0 w-full h-0.5 bg-black transform origin-left transition-transform duration-300 ${
+                  activeTab === "myorders"
+                    ? "scale-x-100"
+                    : "scale-x-0 group-hover:scale-x-100"
+                }`}
+              ></span>
+            </button>
+          </Link>
         </div>
 
         <div className="flex items-center">
@@ -107,17 +122,19 @@ const HomePage = () => {
             </p>
 
             <div className="flex space-x-4">
-             <button 
-                onClick={() => handleNavigation('/itemadd')}
+             <Link href='/itemadd'>
+              <button 
                 className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors duration-300"
               >
                 Add Items
               </button>
+              </Link>
+              <Link href='/verify'>
               <button 
-              onClick={() => handleNavigation('/verify')}   
-                         className="px-6 py-3 bg-transparent border border-black text-black rounded-lg hover:bg-gray-100 transition-colors duration-300">
+              className="px-6 py-3 bg-transparent border border-black text-black rounded-lg hover:bg-gray-100 transition-colors duration-300">
                 Verify Product
               </button>
+              </Link>
             </div>
           </div>
 
