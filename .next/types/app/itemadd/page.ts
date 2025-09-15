@@ -1,8 +1,8 @@
 // File: C:\Users\raman\OneDrive\Pictures\decentralized-trust-chain\src\app\itemadd\page.tsx
-import * as entry from '../../../../src/app/itemadd/page.js'
+import * as entry from '../../../../src/app/itemadd/page.jsx'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
-type TEntry = typeof import('../../../../src/app/itemadd/page.js')
+type TEntry = typeof import('../../../../src/app/itemadd/page.jsx')
 
 // Check that the entry is a valid entry
 checkFields<Diff<{

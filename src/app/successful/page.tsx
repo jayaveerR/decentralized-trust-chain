@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { QRCodeSVG } from 'qrcode.react';
+import React, { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { QRCodeSVG } from "qrcode.react";
+import { motion, AnimatePresence } from "framer-motion";
 
 // Types for Petra Wallet
 interface AptosWallet {
@@ -17,7 +18,7 @@ declare global {
   }
 }
 
-// Define the Order interface
+// Order interface
 interface Order {
   itemType: string;
   itemName: string;
@@ -28,54 +29,47 @@ interface Order {
   pickupTime: string;
 }
 
-const Successful = () => {
+const Successful: React.FC = () => {
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    itemType: '',
-    itemName: '',
-    walletAddress: '',
-    soldBy: '',
-    orderId: '',
-    pickupDate: '',
-    pickupTime: ''
+  const qrRef = useRef<SVGSVGElement>(null);
+  const [formData, setFormData] = useState<Order>({
+    itemType: "",
+    itemName: "",
+    walletAddress: "",
+    soldBy: "",
+    orderId: "",
+    pickupDate: "",
+    pickupTime: "",
   });
   const [copied, setCopied] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState('');
-  const qrRef = useRef(null);
+  const [walletAddress, setWalletAddress] = useState("");
 
+  // Fetch stored order & check wallet
   useEffect(() => {
+    const data = JSON.parse(localStorage.getItem("itemData") || "{}");
+    if (data) setFormData(data);
+    saveOrderToLocalStorage(data);
     checkWalletConnection();
-    // Get data from localStorage or route state
-    if (typeof window !== 'undefined') {
-      const data = JSON.parse(localStorage.getItem('itemData') || '{}');
-      setFormData(data);
-      
-      // Save order to localStorage
-      saveOrderToLocalStorage(data);
-    }
   }, []);
 
-  const saveOrderToLocalStorage = () => {
-    const storedItemData = localStorage.getItem("itemData");
-    if (storedItemData) {
-      const newItem = JSON.parse(storedItemData);
-      const existingOrders = JSON.parse(localStorage.getItem("orders") || "[]");
-
-      // Prevent duplicates by checking orderId before adding
-      const isDuplicate = existingOrders.some(
-        (order: any) => order.orderId === newItem.orderId
+  // Save to localStorage preventing duplicate orderId
+  const saveOrderToLocalStorage = (data: any) => {
+    if (!data?.orderId) return;
+    const existingOrders = JSON.parse(localStorage.getItem("orders") || "[]");
+    const isDuplicate = existingOrders.some(
+      (order: any) => order.orderId === data.orderId
+    );
+    if (!isDuplicate) {
+      localStorage.setItem(
+        "orders",
+        JSON.stringify([...existingOrders, data])
       );
-
-      if (!isDuplicate) {
-        const updatedOrders = [...existingOrders, newItem];
-        localStorage.setItem("orders", JSON.stringify(updatedOrders));
-      }
     }
   };
 
   const checkWalletConnection = async () => {
-    if (typeof window !== 'undefined' && window.aptos) {
+    if (window.aptos) {
       try {
         const connected = await window.aptos.isConnected();
         if (connected) {
@@ -83,80 +77,60 @@ const Successful = () => {
           setIsConnected(true);
           setWalletAddress(account.address);
         }
-      } catch (error) {
-        console.error('Error checking wallet connection:', error);
+      } catch (err) {
+        console.error(err);
       }
     }
   };
 
   const connectWallet = async () => {
-    if (typeof window === 'undefined' || !window.aptos) {
-      alert('Petra wallet not found. Please install it first.');
-      return;
-    }
-
+    if (!window.aptos) return alert("Petra wallet not found!");
     try {
-      const response = await window.aptos.connect();
+      const resp = await window.aptos.connect();
       setIsConnected(true);
-      setWalletAddress(response.address);
-      
-      // Update stored data with wallet connection info
-      const updatedData = { ...formData, walletConnected: true, connectedWallet: response.address };
+      setWalletAddress(resp.address);
+      const updatedData = { ...formData, walletAddress: resp.address };
       setFormData(updatedData);
-      
-      // Update localStorage
-      localStorage.setItem('itemData', JSON.stringify(updatedData));
-      
-    } catch (error: any) {
-      console.error('Error connecting wallet:', error);
-      alert('Failed to connect wallet: ' + (error.message || 'Unknown error'));
+      localStorage.setItem("itemData", JSON.stringify(updatedData));
+    } catch (err: any) {
+      console.error(err);
+      alert("Wallet connection failed: " + (err.message || "Unknown"));
     }
-  };
-
-  const downloadQRCode = () => {
-    if (!qrRef.current) return;
-    
-    const svgElement = qrRef.current;
-    const svgData = new XMLSerializer().serializeToString(svgElement);
-    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    
-    const img = new Image();
-    img.onload = function() {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(img, 0, 0);
-        
-        const pngUrl = canvas.toDataURL('image/png');
-        const downloadLink = document.createElement('a');
-        downloadLink.href = pngUrl;
-        downloadLink.download = `trustchain-${formData.orderId || 'item'}.png`;
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
-        
-        URL.revokeObjectURL(svgUrl);
-      }
-    };
-    
-    img.src = svgUrl;
   };
 
   const copyToClipboard = (text: string) => {
-    if (!text) return;
-    
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Create QR code data
+  const downloadQRCode = () => {
+    if (!qrRef.current) return;
+    const svgData = new XMLSerializer().serializeToString(qrRef.current);
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      const pngUrl = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.href = pngUrl;
+      link.download = `trustchain-${formData.orderId}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  };
+
   const qrCodeData = JSON.stringify({
-    type: 'Trust-Chain Item',
+    type: "Trust-Chain Item",
     item: formData.itemName,
     itemType: formData.itemType,
     orderId: formData.orderId,
@@ -164,197 +138,171 @@ const Successful = () => {
     pickupDate: formData.pickupDate,
     pickupTime: formData.pickupTime,
     wallet: formData.walletAddress,
-    verification: `https://trustchain.verify/item/${formData.orderId}`
+    verification: `https://trustchain.verify/item/${formData.orderId}`,
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 text-gray-800 flex flex-col items-center justify-center p-4">
-      <div className="max-w-2xl w-full bg-white p-8 rounded-2xl shadow-xl">
-        <div className="text-center mb-8">
-          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              className="h-10 w-10 text-green-500" 
-              fill="none" 
-              viewBox="0 0 24 24" 
+    <div className="w-full min-h-screen bg-gradient-to-br from-indigo-50 to-blue-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl p-8 md:p-12 space-y-8"
+      >
+        {/* Success Header */}
+        <motion.div
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.5 }}
+          className="text-center"
+        >
+          <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-12 w-12 text-green-500"
+              fill="none"
+              viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M5 13l4 4L19 7" 
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
               />
             </svg>
           </div>
-          
-          <h1 className="text-3xl font-bold mb-2 text-gray-900">
-            Successfully Added to Blockchain!
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
+            Successfully Added!
           </h1>
-          
-          <p className="text-gray-600">
-            Your item has been securely stored on the Trust-Chain
+          <p className="text-gray-600 text-sm md:text-base">
+            Your item has been securely registered on the Trust-Chain
           </p>
-        </div>
+        </motion.div>
 
-        {/* Wallet Connection Status */}
-        <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                className="h-5 w-5 mr-2 text-blue-500" 
-                fill="none" 
-                viewBox="0 0 24 24" 
-                stroke="currentColor"
+        {/* Wallet Section */}
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="p-4 bg-blue-50 border border-blue-200 rounded-xl flex flex-col md:flex-row justify-between items-center space-y-2 md:space-y-0"
+        >
+          <div className="flex items-center space-x-2">
+            <span className="font-medium text-gray-700">Wallet:</span>
+            <span className="font-semibold text-blue-700">
+              {isConnected
+                ? `${walletAddress.substring(0, 6)}...${walletAddress.substring(
+                    walletAddress.length - 4
+                  )}`
+                : "Not Connected"}
+            </span>
+          </div>
+          {!isConnected && (
+            <button
+              onClick={connectWallet}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Connect Wallet
+            </button>
+          )}
+        </motion.div>
+
+        {/* Item Details + QR */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+          className="grid grid-cols-1 md:grid-cols-2 gap-6"
+        >
+          {/* Item Details */}
+          <div className="bg-gray-50 p-6 rounded-2xl shadow-inner space-y-4">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Item Details</h2>
+            {[
+              { label: "Item Type", value: formData.itemType },
+              { label: "Item Name", value: formData.itemName },
+              { label: "Order ID", value: formData.orderId },
+              { label: "Sold By", value: formData.soldBy },
+              { label: "Pickup Date", value: formData.pickupDate },
+              { label: "Pickup Time", value: formData.pickupTime },
+              { label: "Wallet", value: formData.walletAddress },
+            ].map((item, idx) => (
+              <div key={idx} className="flex justify-between text-gray-700 text-sm md:text-base">
+                <span className="font-medium">{item.label}:</span>
+                <span className="font-semibold">
+                  {item.value
+                    ? item.label === "Wallet"
+                      ? `${item.value.substring(0, 6)}...${item.value.substring(
+                          item.value.length - 4
+                        )}`
+                      : item.value
+                    : "N/A"}
+                </span>
+              </div>
+            ))}
+            {formData.walletAddress && (
+              <button
+                onClick={() => copyToClipboard(formData.walletAddress)}
+                className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
               >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" 
-                />
-              </svg>
-              <span className="font-medium">
-                {isConnected ? `Wallet Connected: ${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}` : 'Wallet Not Connected'}
-              </span>
-            </div>
-            {!isConnected && (
-              <button 
-                onClick={connectWallet}
-                className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition-colors"
-              >
-                Connect Wallet
+                Copy Wallet Address
               </button>
             )}
           </div>
-          <p className="text-sm text-blue-600 mt-2">
-            {isConnected 
-              ? 'Your order is linked to your wallet and will appear in My Orders.' 
-              : 'Connect your wallet to link this order to your account.'}
-          </p>
-        </div>
-        
-        <div className="border border-gray-200 rounded-xl p-6 mb-8 bg-gradient-to-br from-gray-50 to-white">
-          <h2 className="text-xl font-bold mb-4 text-gray-900 flex items-center">
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              className="h-5 w-5 mr-2 text-blue-500" 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
-              />
-            </svg>
-            Item Details
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              { label: "Item Type", value: formData.itemType, icon: "🛍️" },
-              { label: "Item Name", value: formData.itemName, icon: "🏷️" },
-              { label: "Order ID", value: formData.orderId, icon: "📋" },
-              { label: "Sold By", value: formData.soldBy, icon: "👤" },
-              { label: "Pickup Date", value: formData.pickupDate, icon: "📅" },
-              { label: "Pickup Time", value: formData.pickupTime, icon: "⏰" },
-            ].map((item, index) => (
-              <div key={index} className="flex flex-col">
-                <div className="flex items-center text-sm text-gray-500 mb-1">
-                  <span className="mr-2">{item.icon}</span>
-                  {item.label}
-                </div>
-                <p className="font-medium text-gray-900">{item.value || 'N/A'}</p>
-              </div>
-            ))}
-            
-            <div className="flex flex-col">
-              <div className="flex items-center text-sm text-gray-500 mb-1">
-                <span className="mr-2">👛</span>
-                Wallet Address
-              </div>
-              <div className="flex items-center">
-                <p className="font-medium text-gray-900 text-sm mr-2">
-                  {formData.walletAddress ? 
-                    `${formData.walletAddress.substring(0, 6)}...${formData.walletAddress.substring(formData.walletAddress.length - 4)}` : 
-                    'Not provided'
-                  }
-                </p>
-                {formData.walletAddress && (
-                  <button 
-                    onClick={() => copyToClipboard(formData.walletAddress)}
-                    className="text-blue-500 hover:text-blue-700 transition-colors"
-                    title="Copy to clipboard"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex flex-col items-center">
-            <div className="border-4 border-blue-100 rounded-xl p-4 bg-white shadow-md">
-              <QRCodeSVG
-                ref={qrRef}
-                value={qrCodeData}
-                size={150}
-                level="H"
-                includeMargin
-                bgColor="#FFFFFF"
-                fgColor="#000000"
-              />
-            </div>
-            <p className="text-sm text-gray-500 mt-2">Scan to verify authenticity</p>
-          </div>
-          
-          <div className="space-y-4 w-full md:w-auto">
-            <button 
+
+          {/* QR Code */}
+          <div className="flex flex-col items-center justify-center bg-white p-6 rounded-2xl shadow-lg">
+            <QRCodeSVG
+              ref={qrRef}
+              value={qrCodeData}
+              size={200}
+              level="H"
+              includeMargin
+            />
+            <p className="mt-2 text-gray-500 text-sm">Scan to verify authenticity</p>
+            <button
               onClick={downloadQRCode}
-              className="w-full md:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-300 flex items-center justify-center"
+              className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
               Download QR Code
             </button>
-            
-            <button 
-              onClick={() => router.push('/myorders')}
-              className="w-full md:w-auto px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-300 flex items-center justify-center"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              View My Orders
-            </button>
-            
-            <button 
-              onClick={() => router.push('/')}
-              className="w-full md:w-auto px-6 py-3 bg-transparent border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-300 flex items-center justify-center"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-              </svg>
-              Back to Home
-            </button>
           </div>
-        </div>
-      </div>
+        </motion.div>
 
-      {copied && (
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg">
-          Copied to clipboard!
-        </div>
-      )}
+        {/* Actions */}
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+          className="flex flex-col md:flex-row justify-center md:justify-end gap-4"
+        >
+          <button
+            onClick={() => router.push("/myorders")}
+            className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            View My Orders
+          </button>
+          <button
+            onClick={() => router.push("/")}
+            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+          >
+            Back to Home
+          </button>
+        </motion.div>
+      </motion.div>
+
+      {/* Copied Toast */}
+      <AnimatePresence>
+        {copied && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-xl shadow-lg"
+          >
+            Copied to clipboard!
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

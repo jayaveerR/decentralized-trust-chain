@@ -5,7 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 // Define the Order type for localStorage
 interface Order {
-  orderId: string;
+  orderId: string; // User-entered
   itemName: string;
   itemType: string;
   walletAddress: string;
@@ -18,7 +18,7 @@ interface Order {
 interface Item {
   item_type: string;
   item_name: string;
-  order_id: string;
+  order_id: string; // User-entered
   pickup_date: string;
   pickup_time: string;
   wallet_address: string;
@@ -106,7 +106,7 @@ const MyOrders = () => {
         const formattedItems: Item[] = userOrders.map(order => ({
           item_type: order.itemType,
           item_name: order.itemName,
-          order_id: order.orderId,
+          order_id: order.orderId, // User-entered
           pickup_date: order.pickupDate,
           pickup_time: order.pickupTime,
           wallet_address: order.walletAddress,
@@ -258,7 +258,7 @@ const MyOrders = () => {
       type: 'Trust-Chain Item',
       item: item.item_name,
       itemType: item.item_type,
-      orderId: item.order_id,
+      orderId: item.order_id, // User-entered
       soldBy: item.sold_by,
       pickupDate: item.pickup_date,
       pickupTime: item.pickup_time,
@@ -286,7 +286,9 @@ const MyOrders = () => {
                 className={`font-medium ${item === "My Orders" ? "text-orange-600" : "text-gray-600 hover:text-gray-900"}`}
                 onClick={() => {
                   if (item === "Home") router.push("/");
-                  if (item === "Verify") router.push("/verify");
+                  else if (item === "Verify") router.push("/verify");
+                  else if (item === "Products") router.push("/products");
+                  else if (item === "Settings") router.push("/settings");
                 }}
               >
                 {item}
@@ -438,9 +440,9 @@ const MyOrders = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {items.map((item, index) => (
                     <div key={index} className="bg-white border border-gray-200 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-                      <div className="bg-orange-500 text-white p-4">
+                      <div className="bg-white-500 text-black p-4 border-b border-gray-200">
                         <h3 className="text-xl font-bold truncate">{item.item_name}</h3>
-                        <p className="text-orange-100 text-sm capitalize">{item.item_type}</p>
+                        <p className="text-black-100 text-sm capitalize">{item.item_type}</p>
                       </div>
                       <div className="p-4">
                         <div className="space-y-3">
@@ -469,7 +471,7 @@ const MyOrders = () => {
                         </div>
                         <button
                           onClick={() => showQRCode(item)}
-                          className="w-full mt-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                          className="w-full mt-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                         >
                           Show QR Code
                         </button>

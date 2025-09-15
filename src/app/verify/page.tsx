@@ -211,7 +211,7 @@ const Verify = () => {
               className={`relative py-2 ${tab === 'Verify' ? 'font-bold text-orange-600' : 'text-gray-600 hover:text-black'} group transition-colors duration-200`}
               onClick={() => {
                 if (tab === 'Home') router.push('/');
-                if (tab === 'My Orders') router.push('/my-orders');
+                if (tab === 'My Orders') router.push('/myorders');
               }}
             >
               {tab}
