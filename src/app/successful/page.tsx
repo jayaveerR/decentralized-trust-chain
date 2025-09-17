@@ -33,7 +33,7 @@ interface Order {
 }
 
 // Aptos client
-const client = new AptosClient("https://fullnode.devnet.aptoslabs.com");
+const client = new AptosClient("https://fullnode.testnet.aptoslabs.com/v1");
 
 const Successful: React.FC = () => {
   const router = useRouter();
@@ -51,6 +51,7 @@ const Successful: React.FC = () => {
     transactionHash: "",
   });
   const [copied, setCopied] = useState(false);
+  const [copiedHash, setCopiedHash] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
 
@@ -59,7 +60,7 @@ const Successful: React.FC = () => {
     const data = searchParams.get("data");
     if (data) {
       try {
-        const parsed = JSON.parse(data);
+        const parsed = JSON.parse(decodeURIComponent(data));
         setFormData(parsed);
       } catch (err) {
         console.error("Invalid success data", err);
@@ -110,10 +111,15 @@ const Successful: React.FC = () => {
     localStorage.setItem("myOrders", JSON.stringify(updated));
   };
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, isHash = false) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (isHash) {
+      setCopiedHash(true);
+      setTimeout(() => setCopiedHash(false), 2000);
+    } else {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const downloadQRCode = () => {
@@ -150,6 +156,7 @@ const Successful: React.FC = () => {
     pickupDate: formData.pickupDate,
     pickupTime: formData.pickupTime,
     wallet: formData.walletAddress,
+    transactionHash: formData.transactionHash,
     verification: `https://trustchain.verify/item/${formData.orderId}`,
   });
 
@@ -241,17 +248,34 @@ const Successful: React.FC = () => {
               </div>
             ))}
 
-            {/* ✅ Show Txn Hash */}
+            {/* ✅ Show Full Transaction Hash with Copy Button */}
             {formData.transactionHash && (
-              <div className="flex justify-between text-gray-700 text-sm md:text-base">
-                <span className="font-medium">Txn Hash:</span>
-                <a
-                  href={`https://explorer.aptoslabs.com/txn/${formData.transactionHash}?network=testnet`}
-                  target="_blank"
-                  className="font-semibold text-blue-600 underline"
-                >
-                  {formData.transactionHash}
-                </a>
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-4">
+                <div className="flex justify-between items-start">
+                  <span className="font-medium text-green-800 text-sm">Transaction Hash:</span>
+                  <button
+                    onClick={() => copyToClipboard(formData.transactionHash || '', true)}
+                    className="ml-2 px-3 py-1 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    {copiedHash ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <div className="mt-2">
+                  <div className="font-mono text-xs text-green-700 break-all bg-white p-2 rounded border">
+                    {formData.transactionHash}
+                  </div>
+                  <a
+                    href={`https://explorer.aptoslabs.com/txn/${formData.transactionHash}?network=testnet`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center mt-2 text-xs text-green-600 hover:text-green-800 underline"
+                  >
+                    View on Explorer
+                    <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
               </div>
             )}
 
@@ -300,7 +324,7 @@ const Successful: React.FC = () => {
         </motion.div>
       </motion.div>
 
-      {/* Copied Toast */}
+      {/* Toast Notifications */}
       <AnimatePresence>
         {copied && (
           <motion.div
@@ -309,7 +333,17 @@ const Successful: React.FC = () => {
             exit={{ opacity: 0, y: 20 }}
             className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-xl shadow-lg"
           >
-            Copied to clipboard!
+            Wallet address copied to clipboard!
+          </motion.div>
+        )}
+        {copiedHash && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-xl shadow-lg"
+          >
+            Transaction hash copied to clipboard!
           </motion.div>
         )}
       </AnimatePresence>

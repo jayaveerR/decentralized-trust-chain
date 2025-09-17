@@ -21,8 +21,7 @@ declare global {
 }
 
 const client = new AptosClient("https://fullnode.testnet.aptoslabs.com/v1");
-const moduleAddress =
-  "0xc9d300dfef9ec68f48c519ed3d2e95141f180ec8b2eea83d1ccd4dc98c667284";
+const moduleAddress = "0x1d2059e79204cd083acde00913ab3bc0849cd987b01f2b2f337b6143527525d8";
 
 export default function ItemAddWithPetra() {
   const router = useRouter();
@@ -32,15 +31,15 @@ export default function ItemAddWithPetra() {
     itemName: "",
     walletAddress: "",
     soldBy: "",
-    orderId: "", // User-entered
+    orderId: "",
     pickupDate: "",
     pickupTime: "",
+    transactionHash: "pending",
   });
 
   const [qrCodeVisible, setQrCodeVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [blockchainLoading, setBlockchainLoading] = useState(false);
-
   const [connected, setConnected] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -124,7 +123,7 @@ export default function ItemAddWithPetra() {
       setErrorMsg(
         err?.message?.toLowerCase()?.includes("user rejected")
           ? "Connection rejected by user."
-          : "Failed to connect to wallet."
+          : "Failed to connect to wallet.",
       );
       setConnected(false);
       setAddress(null);
@@ -148,10 +147,6 @@ export default function ItemAddWithPetra() {
       setErrorMsg("Failed to disconnect cleanly.");
     }
   };
-
-  useEffect(() => {
-    setFormData((prev) => ({ ...prev, walletAddress: address ?? "" }));
-  }, [address]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -185,10 +180,67 @@ export default function ItemAddWithPetra() {
       alert("Order ID cannot be empty.");
       return;
     }
+
     setBlockchainLoading(true);
     setErrorMsg(null);
+
     try {
-      const transaction = {
+      // FIRST: Initialize the user's store if it doesn't exist
+      try {
+        const initTransaction = {
+          function: `${moduleAddress}::ItemRegistry::init_store`,
+          type_arguments: [],
+          arguments: [],
+        };
+        const initResult = await window.aptos!.signAndSubmitTransaction!(initTransaction);
+        await client.waitForTransactionWithResult(initResult.hash);
+      } catch (initError) {
+        // It's okay if the store already exists - we can ignore this error
+        console.log("Store initialization result (may be expected):", initError);
+      }
+
+      // SECOND: Check if item already exists before adding
+      try {
+        // Try to get the item first to see if it exists
+        const viewResponse = await client.view({
+          function: `${moduleAddress}::ItemRegistry::get_item_by_order_id`,
+          type_arguments: [],
+          arguments: [address, formData.orderId],
+        });
+
+        // If we get a response and the order_id is not empty, item already exists
+        if (viewResponse && viewResponse[0] && viewResponse[0].order_id !== "") {
+          // Item already exists, just update the transaction hash
+          const updateTxn = {
+            function: `${moduleAddress}::ItemRegistry::update_txn_hash`,
+            type_arguments: [],
+            arguments: [formData.orderId, "pending_update"], // We'll update this again later
+          };
+
+          const updateResult = await window.aptos!.signAndSubmitTransaction!(updateTxn);
+          await client.waitForTransactionWithResult(updateResult.hash);
+
+          // Update with the actual transaction hash
+          const finalUpdateTxn = {
+            function: `${moduleAddress}::ItemRegistry::update_txn_hash`,
+            type_arguments: [],
+            arguments: [formData.orderId, updateResult.hash],
+          };
+
+          await window.aptos!.signAndSubmitTransaction!(finalUpdateTxn);
+          setFormData((prev) => ({ ...prev, transactionHash: updateResult.hash }));
+
+          alert("✅ Item transaction hash updated successfully!");
+          router.push(`/successful`);
+          return;
+        }
+      } catch (viewError) {
+        // If view fails, it means item doesn't exist or store doesn't exist yet
+        console.log("Item doesn't exist yet, proceeding to add new item");
+      }
+
+      // THIRD: Add new item if it doesn't exist
+      const addItemTransaction = {
         function: `${moduleAddress}::ItemRegistry::add_item`,
         type_arguments: [],
         arguments: [
@@ -197,19 +249,44 @@ export default function ItemAddWithPetra() {
           formData.orderId,
           formData.pickupDate,
           formData.pickupTime,
-          formData.walletAddress,
+          address, // Use the connected wallet address
           formData.soldBy,
+          "pending", // Empty transaction hash initially
         ],
       };
-      const pending = await window.aptos!.signAndSubmitTransaction!(transaction);
-      await client.waitForTransactionWithResult(pending.hash);
+
+      const pendingTxn = await window.aptos!.signAndSubmitTransaction!(addItemTransaction);
+
+      // FOURTH: Update the transaction hash with the actual hash
+      const updateTxn = {
+        function: `${moduleAddress}::ItemRegistry::update_txn_hash`,
+        type_arguments: [],
+        arguments: [formData.orderId, pendingTxn.hash],
+      };
+
+      await window.aptos!.signAndSubmitTransaction!(updateTxn);
+      await client.waitForTransactionWithResult(pendingTxn.hash);
+
+      // Update local state with the actual transaction hash
+      setFormData((prev) => ({ ...prev, transactionHash: pendingTxn.hash }));
 
       alert("✅ Item successfully added to blockchain!");
-      router.push("/successful");
+      router.push(`/successful?orderId=${formData.orderId}`);
     } catch (err: any) {
       console.error("Blockchain error:", err);
-      alert(`❌ Error adding to blockchain: ${err?.message ?? err}`);
-      router.push("/error");
+      let errorMessage = "Unknown error occurred";
+
+      if (err?.message) {
+        errorMessage = err.message;
+      } else if (typeof err === "string") {
+        errorMessage = err;
+      } else if (err?.errorCode === "invalid_argument") {
+        errorMessage = "Transaction failed. Please check your inputs and try again.";
+      } else if (err?.errorCode === "execution_failed" && err?.message?.includes("1")) {
+        errorMessage = "Item with this Order ID already exists. Please use a different Order ID.";
+      }
+
+      alert(`❌ Error: ${errorMessage}`);
     } finally {
       setBlockchainLoading(false);
     }
@@ -218,9 +295,7 @@ export default function ItemAddWithPetra() {
   const downloadQRCode = () => {
     const canvas = document.querySelector("canvas");
     if (!canvas) return;
-    const pngUrl = (canvas as HTMLCanvasElement)
-      .toDataURL("image/png")
-      .replace("image/png", "image/octet-stream");
+    const pngUrl = (canvas as HTMLCanvasElement).toDataURL("image/png").replace("image/png", "image/octet-stream");
     const downloadLink = document.createElement("a");
     downloadLink.href = pngUrl;
     downloadLink.download = `qrcode-${formData.orderId || "item"}.png`;
@@ -235,7 +310,7 @@ export default function ItemAddWithPetra() {
       <header className="bg-white border-b border-gray-200 py-4 px-6">
         <div className="flex justify-between items-center max-w-6xl mx-auto">
           <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-white-600 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-xl">B</span>
             </div>
             <span className="text-xl font-bold">BlockVerify</span>
@@ -261,18 +336,30 @@ export default function ItemAddWithPetra() {
           {/* Wallet Connection */}
           <div className="flex items-center gap-3">
             {!checkProvider() ? (
-              <a href="https://petra.app" target="_blank" rel="noreferrer" className="px-4 py-2 bg-gray-100 rounded text-sm text-gray-700 hover:bg-gray-200">
+              <a
+                href="https://petra.app"
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 bg-gray-100 rounded text-sm text-gray-700 hover:bg-gray-200"
+              >
                 Install Petra
               </a>
             ) : connected && address ? (
               <>
                 <span className="px-3 py-2 bg-gray-100 rounded text-sm">{maskWalletAddress(address)}</span>
-                <button onClick={disconnectWallet} className="px-3 py-2 bg-red-500 text-white rounded text-sm hover:bg-red-600">
+                <button
+                  onClick={disconnectWallet}
+                  className="px-3 py-2 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                >
                   Disconnect
                 </button>
               </>
             ) : (
-              <button onClick={connectWallet} disabled={connecting} className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-70">
+              <button
+                onClick={connectWallet}
+                disabled={connecting}
+                className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-70"
+              >
                 {connecting ? "Connecting..." : "Connect Wallet"}
               </button>
             )}
@@ -282,7 +369,12 @@ export default function ItemAddWithPetra() {
 
       {/* Main Form & QR Code Section */}
       <main className="max-w-4xl mx-auto px-4 py-8">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="text-center mb-10">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-10"
+        >
           <h1 className="text-3xl font-bold mb-2">Add Item to Trust-Chain</h1>
           <p className="text-gray-600">Register your product on the blockchain for authenticity tracking</p>
           {errorMsg && <p className="mt-3 text-sm text-red-600">{errorMsg}</p>}
@@ -294,9 +386,20 @@ export default function ItemAddWithPetra() {
             {/* Left Column */}
             <div className="space-y-6">
               {/* Item Type */}
-              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+              >
                 <label className="block text-sm font-medium mb-2 text-gray-700">Item Type *</label>
-                <select name="itemType" value={formData.itemType} onChange={handleChange} required disabled={!connected} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50">
+                <select
+                  name="itemType"
+                  value={formData.itemType}
+                  onChange={handleChange}
+                  required
+                  disabled={!connected}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
+                >
                   <option value="">Select item type</option>
                   <option value="shirt">Shirt</option>
                   <option value="pant">Pant</option>
@@ -309,17 +412,47 @@ export default function ItemAddWithPetra() {
               </motion.div>
 
               {/* Item Name */}
-              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.2 }}>
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+              >
                 <label className="block text-sm font-medium mb-2 text-gray-700">Item Name *</label>
-                <input type="text" name="itemName" value={formData.itemName} onChange={handleChange} placeholder="Formal Shirt, Jeans, etc." required disabled={!connected} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50" />
+                <input
+                  type="text"
+                  name="itemName"
+                  value={formData.itemName}
+                  onChange={handleChange}
+                  placeholder="Formal Shirt, Jeans, etc."
+                  required
+                  disabled={!connected}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
+                />
               </motion.div>
 
               {/* Wallet Address */}
-              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.3 }}>
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+              >
                 <label className="block text-sm font-medium mb-2 text-gray-700">Wallet Address *</label>
                 <div className="relative">
-                  <input type="text" name="walletAddress" value={formData.walletAddress} onChange={handleChange} placeholder="0x..." required disabled className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" />
-                  {!connected && <div className="absolute inset-0 bg-gray-100 bg-opacity-50 flex items-center justify-center rounded-lg"><span className="text-sm text-gray-500">Connect wallet to auto-fill</span></div>}
+                  <input
+                    type="text"
+                    name="walletAddress"
+                    value={formData.walletAddress}
+                    onChange={handleChange}
+                    placeholder="0x..."
+                    required
+                    disabled
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  {!connected && (
+                    <div className="absolute inset-0 bg-gray-100 bg-opacity-50 flex items-center justify-center rounded-lg">
+                      <span className="text-sm text-gray-500">Connect wallet to auto-fill</span>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             </div>
@@ -327,40 +460,115 @@ export default function ItemAddWithPetra() {
             {/* Right Column */}
             <div className="space-y-6">
               {/* Sold By */}
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+              >
                 <label className="block text-sm font-medium mb-2 text-gray-700">Sold By *</label>
-                <input type="text" name="soldBy" value={formData.soldBy} onChange={handleChange} placeholder="Seller name" required disabled={!connected} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50" />
+                <input
+                  type="text"
+                  name="soldBy"
+                  value={formData.soldBy}
+                  onChange={handleChange}
+                  placeholder="Seller name"
+                  required
+                  disabled={!connected}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
+                />
               </motion.div>
 
               {/* Order ID */}
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.2 }}>
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+              >
                 <label className="block text-sm font-medium mb-2 text-gray-700">Order ID *</label>
-                <input type="text" name="orderId" value={formData.orderId} onChange={handleChange} placeholder="Order identification number" required disabled={!connected} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50" />
+                <input
+                  type="text"
+                  name="orderId"
+                  value={formData.orderId}
+                  onChange={handleChange}
+                  placeholder="Order identification number"
+                  required
+                  disabled={!connected}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
+                />
               </motion.div>
 
               {/* Pickup Date & Time */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.3 }}>
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.3 }}
+                >
                   <label className="block text-sm font-medium mb-2 text-gray-700">Pickup Date *</label>
-                  <input type="date" name="pickupDate" value={formData.pickupDate} onChange={handleChange} required disabled={!connected} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50" />
+                  <input
+                    type="date"
+                    name="pickupDate"
+                    value={formData.pickupDate}
+                    onChange={handleChange}
+                    required
+                    disabled={!connected}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
+                  />
                 </motion.div>
 
-                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.4 }}>
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.4 }}
+                >
                   <label className="block text-sm font-medium mb-2 text-gray-700">Pickup Time *</label>
-                  <input type="time" name="pickupTime" value={formData.pickupTime} onChange={handleChange} required disabled={!connected} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50" />
+                  <input
+                    type="time"
+                    name="pickupTime"
+                    value={formData.pickupTime}
+                    onChange={handleChange}
+                    required
+                    disabled={!connected}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:opacity-50"
+                  />
                 </motion.div>
               </div>
             </div>
           </div>
 
           {/* Submit */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.5 }} className="flex justify-center mt-10">
-            <button type="submit" disabled={submitting || !connected} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors duration-300 disabled:opacity-70 flex items-center">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.5 }}
+            className="flex justify-center mt-10"
+          >
+            <button
+              type="submit"
+              disabled={submitting || !connected}
+              className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors duration-300 disabled:opacity-70 flex items-center"
+            >
               {submitting ? (
                 <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <svg
+                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
                   </svg>
                   Processing...
                 </>
@@ -374,14 +582,31 @@ export default function ItemAddWithPetra() {
         {/* QR Code Modal */}
         <AnimatePresence>
           {qrCodeVisible && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-              <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }} className="bg-white rounded-xl shadow-xl p-6 md:p-10 w-full max-w-3xl overflow-auto">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.8 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.8 }}
+                className="bg-white rounded-xl shadow-xl p-6 md:p-10 w-full max-w-3xl overflow-auto"
+              >
                 <h2 className="text-2xl font-bold mb-6 text-center">Item QR Code</h2>
 
                 <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                   <div className="flex justify-center">
                     <div className="border-4 border-blue-100 rounded-lg p-4 flex items-center justify-center">
-                      <QRCodeSVG value={JSON.stringify(formData)} size={220} level="H" includeMargin bgColor="#FFFFFF" fgColor="#000000" />
+                      <QRCodeSVG
+                        value={JSON.stringify(formData)}
+                        size={220}
+                        level="H"
+                        includeMargin
+                        bgColor="#FFFFFF"
+                        fgColor="#000000"
+                      />
                     </div>
                   </div>
 
@@ -406,24 +631,61 @@ export default function ItemAddWithPetra() {
                       </div>
                       <div>
                         <p className="text-sm text-gray-600">Pickup</p>
-                        <p className="font-medium">{formData.pickupDate} at {formData.pickupTime}</p>
+                        <p className="font-medium">
+                          {formData.pickupDate} at {formData.pickupTime}
+                        </p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-600">Wallet Address</p>
                         <p className="font-medium text-xs">{maskWalletAddress(formData.walletAddress)}</p>
                       </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Transaction Hash</p>
+                        <p className="font-medium text-xs">
+                          {formData.transactionHash === "pending"
+                            ? "Pending..."
+                            : maskWalletAddress(formData.transactionHash)}
+                        </p>
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap gap-4 mt-6 justify-center">
-                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={downloadQRCode} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={downloadQRCode}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium"
+                      >
                         Download QR Code
                       </motion.button>
-                      <motion.button onClick={handleAddToBlockchain} disabled={blockchainLoading} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="px-6 py-2 bg-orange-500 text-white rounded-lg font-medium disabled:bg-gray-400 flex items-center">
+                      <motion.button
+                        onClick={handleAddToBlockchain}
+                        disabled={blockchainLoading}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="px-6 py-2 bg-orange-500 text-white rounded-lg font-medium disabled:bg-gray-400 flex items-center"
+                      >
                         {blockchainLoading ? (
                           <>
-                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            <svg
+                              className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              ></circle>
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                              ></path>
                             </svg>
                             Adding to Blockchain...
                           </>
@@ -431,7 +693,12 @@ export default function ItemAddWithPetra() {
                           "Add to Blockchain"
                         )}
                       </motion.button>
-                      <motion.button onClick={() => setQrCodeVisible(false)} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="px-6 py-2 bg-gray-400 text-white rounded-lg font-medium">
+                      <motion.button
+                        onClick={() => setQrCodeVisible(false)}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="px-6 py-2 bg-gray-400 text-white rounded-lg font-medium"
+                      >
                         Close
                       </motion.button>
                     </div>
