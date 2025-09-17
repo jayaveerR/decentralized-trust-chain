@@ -204,7 +204,6 @@ export default function ItemAddWithPetra() {
       const pending = await window.aptos!.signAndSubmitTransaction!(transaction);
       await client.waitForTransactionWithResult(pending.hash);
 
-      localStorage.setItem("itemData", JSON.stringify(formData));
       alert("✅ Item successfully added to blockchain!");
       router.push("/successful");
     } catch (err: any) {

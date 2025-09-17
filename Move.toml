@@ -4,10 +4,10 @@ version = "1.0.0"
 authors = []
 
 [addresses]
-MyItems = "0xc9d300dfef9ec68f48c519ed3d2e95141f180ec8b2eea83d1ccd4dc98c667284"
+MyItems = "0x1d2059e79204cd083acde00913ab3bc0849cd987b01f2b2f337b6143527525d8"
 
 [dev-addresses]
-MyItems = "0xc9d300dfef9ec68f48c519ed3d2e95141f180ec8b2eea83d1ccd4dc98c667284"
+MyItems = "0x1d2059e79204cd083acde00913ab3bc0849cd987b01f2b2f337b6143527525d8"
 
 
 [dependencies.AptosFramework]

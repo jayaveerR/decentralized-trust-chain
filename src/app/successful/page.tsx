@@ -1,8 +1,9 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { motion, AnimatePresence } from "framer-motion";
+import { AptosClient } from "aptos";
 
 // Types for Petra Wallet
 interface AptosWallet {
@@ -10,6 +11,7 @@ interface AptosWallet {
   disconnect: () => Promise<void>;
   isConnected: () => Promise<boolean>;
   account: () => Promise<{ address: string }>;
+  signAndSubmitTransaction: (payload: any) => Promise<{ hash: string }>;
 }
 
 declare global {
@@ -27,11 +29,17 @@ interface Order {
   orderId: string;
   pickupDate: string;
   pickupTime: string;
+  transactionHash?: string;
 }
+
+// Aptos client
+const client = new AptosClient("https://fullnode.devnet.aptoslabs.com");
 
 const Successful: React.FC = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const qrRef = useRef<SVGSVGElement>(null);
+
   const [formData, setFormData] = useState<Order>({
     itemType: "",
     itemName: "",
@@ -40,33 +48,29 @@ const Successful: React.FC = () => {
     orderId: "",
     pickupDate: "",
     pickupTime: "",
+    transactionHash: "",
   });
   const [copied, setCopied] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
 
-  // Fetch stored order & check wallet
+  // ✅ Load data from query params
   useEffect(() => {
-    const data = JSON.parse(localStorage.getItem("itemData") || "{}");
-    if (data) setFormData(data);
-    saveOrderToLocalStorage(data);
+    const data = searchParams.get("data");
+    if (data) {
+      try {
+        const parsed = JSON.parse(data);
+        setFormData(parsed);
+      } catch (err) {
+        console.error("Invalid success data", err);
+      }
+    }
+  }, [searchParams]);
+
+  // Wallet check
+  useEffect(() => {
     checkWalletConnection();
   }, []);
-
-  // Save to localStorage preventing duplicate orderId
-  const saveOrderToLocalStorage = (data: any) => {
-    if (!data?.orderId) return;
-    const existingOrders = JSON.parse(localStorage.getItem("orders") || "[]");
-    const isDuplicate = existingOrders.some(
-      (order: any) => order.orderId === data.orderId
-    );
-    if (!isDuplicate) {
-      localStorage.setItem(
-        "orders",
-        JSON.stringify([...existingOrders, data])
-      );
-    }
-  };
 
   const checkWalletConnection = async () => {
     if (window.aptos) {
@@ -91,11 +95,19 @@ const Successful: React.FC = () => {
       setWalletAddress(resp.address);
       const updatedData = { ...formData, walletAddress: resp.address };
       setFormData(updatedData);
-      localStorage.setItem("itemData", JSON.stringify(updatedData));
+      saveOrderToLocal(updatedData);
+      alert("Order saved locally ✅");
     } catch (err: any) {
       console.error(err);
       alert("Wallet connection failed: " + (err.message || "Unknown"));
     }
+  };
+
+  // store order to localStorage (frontend MyOrders)
+  const saveOrderToLocal = (order: Order) => {
+    const existing = JSON.parse(localStorage.getItem("myOrders") || "[]");
+    const updated = [...existing, order];
+    localStorage.setItem("myOrders", JSON.stringify(updated));
   };
 
   const copyToClipboard = (text: string) => {
@@ -164,17 +176,10 @@ const Successful: React.FC = () => {
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 13l4 4L19 7"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-            Successfully Added!
-          </h1>
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Successfully Added!</h1>
           <p className="text-gray-600 text-sm md:text-base">
             Your item has been securely registered on the Trust-Chain
           </p>
@@ -191,9 +196,7 @@ const Successful: React.FC = () => {
             <span className="font-medium text-gray-700">Wallet:</span>
             <span className="font-semibold text-blue-700">
               {isConnected
-                ? `${walletAddress.substring(0, 6)}...${walletAddress.substring(
-                    walletAddress.length - 4
-                  )}`
+                ? `${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}`
                 : "Not Connected"}
             </span>
           </div>
@@ -231,14 +234,27 @@ const Successful: React.FC = () => {
                 <span className="font-semibold">
                   {item.value
                     ? item.label === "Wallet"
-                      ? `${item.value.substring(0, 6)}...${item.value.substring(
-                          item.value.length - 4
-                        )}`
+                      ? `${item.value.substring(0, 6)}...${item.value.substring(item.value.length - 4)}`
                       : item.value
                     : "N/A"}
                 </span>
               </div>
             ))}
+
+            {/* ✅ Show Txn Hash */}
+            {formData.transactionHash && (
+              <div className="flex justify-between text-gray-700 text-sm md:text-base">
+                <span className="font-medium">Txn Hash:</span>
+                <a
+                  href={`https://explorer.aptoslabs.com/txn/${formData.transactionHash}?network=testnet`}
+                  target="_blank"
+                  className="font-semibold text-blue-600 underline"
+                >
+                  {formData.transactionHash}
+                </a>
+              </div>
+            )}
+
             {formData.walletAddress && (
               <button
                 onClick={() => copyToClipboard(formData.walletAddress)}
@@ -251,13 +267,7 @@ const Successful: React.FC = () => {
 
           {/* QR Code */}
           <div className="flex flex-col items-center justify-center bg-white p-6 rounded-2xl shadow-lg">
-            <QRCodeSVG
-              ref={qrRef}
-              value={qrCodeData}
-              size={200}
-              level="H"
-              includeMargin
-            />
+            <QRCodeSVG ref={qrRef} value={qrCodeData} size={200} level="H" includeMargin />
             <p className="mt-2 text-gray-500 text-sm">Scan to verify authenticity</p>
             <button
               onClick={downloadQRCode}
