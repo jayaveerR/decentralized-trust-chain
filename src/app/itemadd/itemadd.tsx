@@ -20,13 +20,25 @@ declare global {
   }
 }
 
+// Define the Order interface
+interface Order {
+  itemType: string;
+  itemName: string;
+  walletAddress: string;
+  soldBy: string;
+  orderId: string;
+  pickupDate: string;
+  pickupTime: string;
+  transactionHash: string;
+}
+
 const client = new AptosClient("https://fullnode.testnet.aptoslabs.com/v1");
 const moduleAddress = "0x1d2059e79204cd083acde00913ab3bc0849cd987b01f2b2f337b6143527525d8";
 
 export default function ItemAddWithPetra() {
   const router = useRouter();
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<Order>({
     itemType: "",
     itemName: "",
     walletAddress: "",
@@ -230,6 +242,12 @@ export default function ItemAddWithPetra() {
           await window.aptos!.signAndSubmitTransaction!(finalUpdateTxn);
           setFormData((prev) => ({ ...prev, transactionHash: updateResult.hash }));
 
+          // Store the order data in localStorage for the success page
+          localStorage.setItem("lastOrder", JSON.stringify({
+            ...formData,
+            transactionHash: updateResult.hash
+          }));
+          
           alert("✅ Item transaction hash updated successfully!");
           router.push(`/successful`);
           return;
@@ -270,8 +288,14 @@ export default function ItemAddWithPetra() {
       // Update local state with the actual transaction hash
       setFormData((prev) => ({ ...prev, transactionHash: pendingTxn.hash }));
 
+      // Store the order data in localStorage for the success page
+      localStorage.setItem("lastOrder", JSON.stringify({
+        ...formData,
+        transactionHash: pendingTxn.hash
+      }));
+
       alert("✅ Item successfully added to blockchain!");
-      router.push(`/successful?orderId=${formData.orderId}`);
+      router.push(`/successful`);
     } catch (err: any) {
       console.error("Blockchain error:", err);
       let errorMessage = "Unknown error occurred";

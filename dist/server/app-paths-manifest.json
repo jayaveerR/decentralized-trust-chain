@@ -1,8 +1,6 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
-  "/myorders/page": "app/myorders/page.js",
-  "/manifest.json/route": "app/manifest.json/route.js",
   "/page": "app/page.js",
-  "/itemadd/page": "app/itemadd/page.js",
-  "/successful/page": "app/successful/page.js"
+  "/manifest.json/route": "app/manifest.json/route.js",
+  "/verify/page": "app/verify/page.js"
 }

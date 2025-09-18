@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AptosClient } from "aptos";
@@ -37,7 +37,6 @@ const client = new AptosClient("https://fullnode.testnet.aptoslabs.com/v1");
 
 const Successful: React.FC = () => {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const qrRef = useRef<SVGSVGElement>(null);
 
   const [formData, setFormData] = useState<Order>({
@@ -55,18 +54,21 @@ const Successful: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
 
-  // ✅ Load data from query params
+  // ✅ Load data from localStorage instead of query params
   useEffect(() => {
-    const data = searchParams.get("data");
-    if (data) {
+    const savedOrder = localStorage.getItem("lastOrder");
+    if (savedOrder) {
       try {
-        const parsed = JSON.parse(decodeURIComponent(data));
+        const parsed = JSON.parse(savedOrder);
         setFormData(parsed);
+        
+        // Also save to myOrders for the MyOrders page
+        saveOrderToLocal(parsed);
       } catch (err) {
-        console.error("Invalid success data", err);
+        console.error("Invalid saved order data", err);
       }
     }
-  }, [searchParams]);
+  }, []);
 
   // Wallet check
   useEffect(() => {
@@ -97,7 +99,6 @@ const Successful: React.FC = () => {
       const updatedData = { ...formData, walletAddress: resp.address };
       setFormData(updatedData);
       saveOrderToLocal(updatedData);
-      alert("Order saved locally ✅");
     } catch (err: any) {
       console.error(err);
       alert("Wallet connection failed: " + (err.message || "Unknown"));
@@ -107,8 +108,16 @@ const Successful: React.FC = () => {
   // store order to localStorage (frontend MyOrders)
   const saveOrderToLocal = (order: Order) => {
     const existing = JSON.parse(localStorage.getItem("myOrders") || "[]");
-    const updated = [...existing, order];
-    localStorage.setItem("myOrders", JSON.stringify(updated));
+    
+    // Check if order already exists to avoid duplicates
+    const orderExists = existing.some((existingOrder: Order) => 
+      existingOrder.orderId === order.orderId
+    );
+    
+    if (!orderExists) {
+      const updated = [...existing, order];
+      localStorage.setItem("myOrders", JSON.stringify(updated));
+    }
   };
 
   const copyToClipboard = (text: string, isHash = false) => {
